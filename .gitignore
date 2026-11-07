@@ -33,6 +33,9 @@ yarn-error.*
 # local env files
 .env*.local
 
+# private keys and secrets kept only on this computer (never commit)
+.secrets/
+
 # typescript
 *.tsbuildinfo
 

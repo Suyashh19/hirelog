@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Confirm work · HireLog</title>
+<style>
+  :root { --brand:#0F5C4D; --ink:#14211D; --muted:#68756F; --line:#E6E1D6; --bg:#F4F2EC; --ok:#14935F; --bad:#C0392B; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width: 480px; margin: 0 auto; padding: 20px 16px 40px; }
+  .brand { color:var(--brand); font-weight:800; letter-spacing:1px; font-size:13px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:16px; padding:18px; margin-top:14px; }
+  h1 { font-size:22px; margin:6px 0 2px; }
+  .muted { color:var(--muted); font-size:14px; }
+  .row { display:flex; justify-content:space-between; gap:12px; padding:8px 0; border-bottom:1px solid var(--line); }
+  .row:last-child { border-bottom:none; }
+  .big { font-size:28px; font-weight:800; }
+  button { width:100%; min-height:52px; border-radius:999px; border:none; font-size:16px; font-weight:800; margin-top:10px; cursor:pointer; }
+  .yes { background:var(--ok); color:#fff; } .no { background:#fff; color:var(--bad); border:1.5px solid var(--bad); }
+  textarea { width:100%; min-height:80px; border:1px solid var(--line); border-radius:12px; padding:10px; font:inherit; margin-top:10px; }
+  .done { text-align:center; font-weight:800; font-size:18px; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">HIRELOG</div>
+  <div id="app"><p class="muted">Loading…</p></div>
+</main>
+<script type="module">
+  // Fill these in once (same values as src/config.ts in the app). The publishable key is safe to publish.
+  const SUPABASE_URL = 'https://vqxbrfafkiukvxzosgoq.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_sfCmQZGGej714tPcONmzsQ_-2jlRwv7';
+
+  const app = document.getElementById('app');
+  const token = new URLSearchParams(location.search).get('t') || '';
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const CUR = { IN: '₹', GB: '£', US: '$', AU: 'A$', NZ: 'NZ$', CA: 'C$', IE: '€', AE: 'AED ', ZA: 'R', OTHER: '$' };
+
+  async function rpc(name, body) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
+      method: 'POST', headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  }
+  const dur = (s) => { const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`; };
+  const money = (p, c) => `${CUR[c] || ''}${(p / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  const dt = (s) => s ? new Date(s).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+
+  function work(d) {
+    if (d.unit === 'hour') return dur(d.billable_seconds || 0) + (d.meter_start != null && d.meter_end != null ? ` (hours counter ${d.meter_start} → ${d.meter_end})` : '');
+    if (d.unit === 'km') return `${d.quantity ?? d.gps_km ?? 0} ${d.currency === 'GB' || d.currency === 'US' ? 'miles' : 'km'}` +
+      (d.meter_start != null && d.meter_end != null ? ` (dashboard ${d.meter_start} → ${d.meter_end})` : d.gps_km != null ? ' (GPS)' : '');
+    return `${d.quantity ?? 1} ${d.unit}`;
+  }
+
+  function render(d) {
+    if (!d) { app.innerHTML = '<div class="card"><p>This link is not valid or has expired.</p></div>'; return; }
+    const answered = d.status === 'confirmed' || d.status === 'disputed';
+    app.innerHTML = `
+      <h1>${esc(d.business)}</h1>
+      <p class="muted">asks you to confirm this work${d.customer ? ` for <b>${esc(d.customer)}</b>` : ''}</p>
+      <div class="card">
+        <div class="row"><span class="muted">Work</span><b>${esc(d.work)}${d.variant ? ' · ' + esc(d.variant) : ''}</b></div>
+        <div class="row"><span class="muted">Start</span><span>${dt(d.started_at)}</span></div>
+        <div class="row"><span class="muted">End</span><span>${dt(d.ended_at)}</span></div>
+        ${d.gps_from || d.gps_to ? `<div class="row"><span class="muted">Route</span><span>${esc(d.gps_from || '?')} → ${esc(d.gps_to || '?')}</span></div>` : ''}
+        <div class="row"><span class="muted">Amount of work</span><b>${esc(work(d))}</b></div>
+        ${d.amount_paise ? `<div class="row"><span class="muted">Charge</span><span class="big">${money(d.amount_paise, d.currency)}</span></div>` : ''}
+      </div>
+      <div class="card" id="act">
+        ${answered
+          ? `<p class="done ${d.status === 'confirmed' ? 'ok' : 'bad'}">${d.status === 'confirmed' ? '✓ You confirmed this' : '✗ You disputed this'}</p>${d.note ? `<p class="muted">${esc(d.note)}</p>` : ''}`
+          : `<button class="yes" id="yes">✓ Yes, this is correct</button>
+             <textarea id="note" placeholder="Something wrong? Write what (optional)"></textarea>
+             <button class="no" id="no">✗ Something is wrong</button>`}
+      </div>
+      <p class="muted" style="text-align:center;margin-top:18px">Your answer is sent to ${esc(d.business)}${d.business_phone ? ' (' + esc(d.business_phone) + ')' : ''}.</p>`;
+    if (!answered) {
+      const send = async (agree) => {
+        document.getElementById('act').innerHTML = '<p class="muted">Sending…</p>';
+        try {
+          const note = agree ? null : (document.getElementById('note')?.value || null);
+          await rpc('respond_confirmation', { t: token, agree, note });
+          render(await rpc('get_confirmation', { t: token }));
+        } catch (e) {
+          document.getElementById('act').innerHTML = '<p class="bad">Could not send. Check your internet and try again.</p>';
+        }
+      };
+      document.getElementById('yes').onclick = () => send(true);
+      document.getElementById('no').onclick = () => send(false);
+    }
+  }
+
+  rpc('get_confirmation', { t: token }).then(render).catch(() => render(null));
+</script>
+</body>
+</html>
